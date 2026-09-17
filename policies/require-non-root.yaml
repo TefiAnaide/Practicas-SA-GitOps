@@ -1,0 +1,29 @@
+# Politica 3 de 3: ningun container del namespace puede correr como root.
+# Coincide con lo que ya declaran los 6 subcharts (runAsNonRoot: true,
+# runAsUser numerico — ver P5/charts/*/values.yaml), pero esta politica
+# lo hace exigible por admission, no solo por convencion del chart: si
+# alguien quita esa configuracion por error, Kyverno rechaza el Pod.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-non-root
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-run-as-non-root
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              namespaces: ["sa-p8"]
+      validate:
+        message: "Los containers deben correr con runAsNonRoot: true — Practica 8, seccion 3.2."
+        anyPattern:
+          - spec:
+              securityContext:
+                runAsNonRoot: true
+          - spec:
+              containers:
+                - securityContext:
+                    runAsNonRoot: true

@@ -1,0 +1,28 @@
+# Puerta de calidad de la promocion canary: en el paso intermedio (peso
+# 50%) el Rollout consulta este AnalysisTemplate 3 veces cada 10s contra
+# /health, pero via el Service "-canary" (templates/service.yaml), que
+# Argo Rollouts mantiene apuntando SOLO a los pods de la revision nueva —
+# pegarle al Service compartido daba falsos positivos (mezcla pods
+# viejos/nuevos). failureLimit: 0 es a proposito: con count=3 y
+# failureLimit=1 el analisis SIGUE pasando aunque 1 de las 3 mediciones
+# falle (failureLimit es cuantos fallos TOLERA, no cuantos hacen fallar) —
+# confirmado con una version rota real en un clúster de prueba: el
+# resultado fue "Successful" con 1 medicion fallida hasta bajar esto a 0.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ include "api-gateway.fullname" . }}-canary-analysis
+  labels:
+    {{- include "api-gateway.labels" . | nindent 4 }}
+spec:
+  metrics:
+    - name: health-check
+      interval: 10s
+      count: 3
+      failureLimit: 0
+      successCondition: result == "ok"
+      provider:
+        web:
+          url: "http://{{ include "api-gateway.fullname" . }}-canary.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/health"
+          jsonPath: "{$.status}"
+          timeoutSeconds: 5

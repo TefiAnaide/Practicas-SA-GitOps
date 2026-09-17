@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: postgres
+  namespace: sa-p8
+spec:
+  encryptedData:
+    postgres-password: AgA3jREQCiuKcnJzZNz09NFLmPLpuO1aoysLbNd46VzJ0NoEU+3ZuV2mT2qgTPyqxRwxRu/opfP4RSfhtBc5WNUBpeytqDJQsflnp/fQis8i2JOyrhJ4rnjx79WTlwCmfeqkyX/cJfgsM4dBsf3lykw5PTanJLDAYaX7Lwo3QPJcLfVGFsmhrEJDQbr69zWmA1s3BdTjlJmzL+l8kcaU+coy5v6sQCU7MWBIGjoOhjJDVSB09P6deNJJlsXGGyAThTUpwi3IkUbmMXGmeDoLT6FNah/d8PLH0/2+rgo4FWK2iELpXu6VNLC/BSLAZi5wY/WeuYbErYxolKeyNpAWtTKXFBL7Po+NeSbuxFMekzqch3sMeKf3LeacvjCR1vLJHuRQ5OpDEgVJQnNudE/y4q1hT4aQU843YaqlKWZ1l+nvXVRMZMAuC3y7xDvfJvL9+8wG+4dPc2unJ2GQRuvRGfnFheO9hkr2RTLVebiizrDDAt6ZxhAVVBcAcNH/HEbIRFQqZrK2vZV45D379MsQTcAKsEPkEUGwKENSwqYymER5rjIbqgOkva+oLWWrJ+GH1x64pU037P/AJ7jFSYMI+t+Z52RuJvafmbZpfz+eR6kFRHTCNZ8qD6uRvPRhW1rM9aNI/+TR9j3Nrq3v2cV3vpjcTw2UqJ7+BKuoZ1W26gIz2knH8hPZwjG5g0gzVBKfB/DqrHzyqXguZtdGh5yeEXm1bcvlQgUlXdxHTrmrC0jquw==
+  template:
+    metadata:
+      name: postgres
+      namespace: sa-p8

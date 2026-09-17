@@ -1,0 +1,31 @@
+# Politica 2 de 3: todo container del namespace debe declarar requests Y
+# limits de cpu/memory — nada de contenedores "sin freno" que puedan
+# acaparar el nodo. Ya lo garantiza el LimitRange de Terraform como
+# default, pero esta politica ademas RECHAZA en el admission cualquier Pod
+# que intente saltarselo explicitamente (ej. limits: {} a proposito).
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-resource-limits
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-cpu-memory-limits
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              namespaces: ["sa-p8"]
+      validate:
+        message: "Todo container debe declarar resources.requests y resources.limits de cpu y memory — Practica 8, seccion 3.2."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  requests:
+                    cpu: "?*"
+                    memory: "?*"
+                  limits:
+                    cpu: "?*"
+                    memory: "?*"

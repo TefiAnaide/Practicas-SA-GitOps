@@ -1,0 +1,5 @@
+# Los .tgz de dependencias (postgresql, rabbitmq) SI se versionan a
+# proposito (a diferencia de la Practica 5): el script de verificacion de
+# la Practica 8 corre "helm lint --with-subcharts" directo sobre un clone
+# fresco del repo, sin ejecutar "helm dependency build" antes — si estos
+# .tgz faltaran, el lint fallaria por dependencias no resueltas.

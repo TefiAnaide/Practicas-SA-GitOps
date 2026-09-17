@@ -1,0 +1,29 @@
+# Aplicacion de ArgoCD para la plataforma de microservicios (Practica 8).
+# Este es el UNICO objeto que un humano aplica manualmente al cluster una
+# vez (kubectl apply -f argocd-application.yaml -n argocd) — desde ahi en
+# adelante, todo cambio de version pasa por un commit/PR a este mismo repo
+# y ArgoCD lo sincroniza solo. Ningun workflow de CI/CD ejecuta esto.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sa-p8
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/TefiAnaide/Practicas-SA-GitOps.git
+    targetRevision: main
+    path: chart
+    helm:
+      valueFiles:
+        - values-dev.yaml
+        - values-images.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sa-p8
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false # el namespace lo crea Terraform, no ArgoCD

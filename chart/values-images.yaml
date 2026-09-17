@@ -1,0 +1,39 @@
+# Unico archivo que el pipeline de CI modifica automaticamente (via Pull
+# Request, nunca con un push directo ni con "helm upgrade" contra el
+# cluster). Cada release crea un tag de Git (vX.Y.Z); el workflow construye,
+# firma y publica la imagen con ESE tag exacto (nunca "latest", ver Practica
+# 8 seccion 3.2) y abre un PR que solo cambia las lineas "tag:" de aqui.
+#
+# ArgoCD sincroniza este repo automaticamente -> al mergear el PR, la nueva
+# version se despliega via Argo Rollouts sin que nadie ejecute kubectl ni
+# helm contra el cluster.
+
+api-gateway:
+  image:
+    repository: ghcr.io/tefianaide/pr-cticas-sa-b-202300547/p8-api-gateway
+    tag: "v0.1.0"
+
+auth-service:
+  image:
+    repository: ghcr.io/tefianaide/pr-cticas-sa-b-202300547/p8-auth-service
+    tag: "v0.1.0"
+
+authz-service:
+  image:
+    repository: ghcr.io/tefianaide/pr-cticas-sa-b-202300547/p8-authz-service
+    tag: "v0.1.0"
+
+pedidos-service:
+  image:
+    repository: ghcr.io/tefianaide/pr-cticas-sa-b-202300547/p8-pedidos-service
+    tag: "v0.1.0"
+
+productos-service:
+  image:
+    repository: ghcr.io/tefianaide/pr-cticas-sa-b-202300547/p8-productos-service
+    tag: "v0.1.0"
+
+reportes-service:
+  image:
+    repository: ghcr.io/tefianaide/pr-cticas-sa-b-202300547/p8-reportes-service
+    tag: "v0.1.0"

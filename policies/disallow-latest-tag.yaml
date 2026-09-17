@@ -1,0 +1,24 @@
+# Politica 1 de 3 (Practica 8, seccion 3.2): prohibe la etiqueta "latest"
+# en cualquier imagen del namespace de la plataforma. Enforce (no Audit):
+# un Pod con ":latest" (o sin tag, que Docker resuelve como latest) es
+# RECHAZADO en el admission, no solo reportado.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-image-tag-not-latest
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              namespaces: ["sa-p8"]
+      validate:
+        message: "La imagen no puede usar el tag ':latest' (o ausencia de tag) — Practica 8, seccion 3.2."
+        pattern:
+          spec:
+            containers:
+              - image: "!*:latest"

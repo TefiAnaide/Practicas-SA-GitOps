@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "api-gateway.fullname" . }}
+  labels:
+    {{- include "api-gateway.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "api-gateway.selectorLabels" . | nindent 4 }}
+---
+# Service SOLO para el analisis del canary (Practica 8): Argo Rollouts le
+# reescribe el selector dinamicamente para que apunte unicamente a los pods
+# de la revision canary (nunca a la estable). Sin esto, el AnalysisTemplate
+# que pega contra un Service compartido recibe respuestas mezcladas de
+# pods viejos y nuevos por el balanceo normal del Service — confirmado en
+# pruebas locales (measurements alternando "ok"/"degraded" en la misma
+# corrida). El trafico real de usuarios NO pasa por este Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "api-gateway.fullname" . }}-canary
+  labels:
+    {{- include "api-gateway.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "api-gateway.selectorLabels" . | nindent 4 }}
