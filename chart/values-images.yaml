@@ -11,29 +11,29 @@
 api-gateway:
   image:
     repository: ghcr.io/tefianaide/pr-cticas-sa-b-202300547/p8-api-gateway
-    tag: "v0.1.0"
+    tag: "v0.2.1"
 
 auth-service:
   image:
     repository: ghcr.io/tefianaide/pr-cticas-sa-b-202300547/p8-auth-service
-    tag: "v0.1.0"
+    tag: "v0.2.1"
 
 authz-service:
   image:
     repository: ghcr.io/tefianaide/pr-cticas-sa-b-202300547/p8-authz-service
-    tag: "v0.1.0"
+    tag: "v0.2.1"
 
 pedidos-service:
   image:
     repository: ghcr.io/tefianaide/pr-cticas-sa-b-202300547/p8-pedidos-service
-    tag: "v0.1.0"
+    tag: "v0.2.1"
 
 productos-service:
   image:
     repository: ghcr.io/tefianaide/pr-cticas-sa-b-202300547/p8-productos-service
-    tag: "v0.1.0"
+    tag: "v0.2.1"
 
 reportes-service:
   image:
     repository: ghcr.io/tefianaide/pr-cticas-sa-b-202300547/p8-reportes-service
-    tag: "v0.1.0"
+    tag: "v0.2.1"
