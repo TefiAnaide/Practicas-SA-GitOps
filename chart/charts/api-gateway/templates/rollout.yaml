@@ -27,18 +27,21 @@ spec:
       # accidente un pod de la revision estable (ver templates/service.yaml).
       stableService: {{ include "api-gateway.fullname" . }}
       canaryService: {{ include "api-gateway.fullname" . }}-canary
+      # El paso "analysis" queda al final a proposito: Argo Rollouts
+      # promueve automaticamente al 100% en cuanto el ultimo paso declarado
+      # termina exitosamente, asi que no hace falta un setWeight:100 explicito
+      # despues del analisis — y si el analisis falla (al 50% de trafico),
+      # el Rollout aborta ahi mismo y nunca llega a exponer mas del 50%.
       steps:
         - setWeight: 20
         - pause:
             duration: 30s
         - setWeight: 50
+        - pause:
+            duration: 10s
         - analysis:
             templates:
               - templateName: {{ include "api-gateway.fullname" . }}-canary-analysis
-        - setWeight: 80
-        - pause:
-            duration: 30s
-        - setWeight: 100
   template:
     metadata:
       annotations:
