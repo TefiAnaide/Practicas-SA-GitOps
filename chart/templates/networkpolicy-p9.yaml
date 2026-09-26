@@ -1,0 +1,41 @@
+{{/*
+Practica 9: entradas adicionales al api-gateway, sumadas (las NetworkPolicy
+son aditivas) a la regla "solo desde ingress-nginx" de
+networkpolicy-services.yaml.
+
+En la Practica 8 el CNI de kind (kindnet antiguo) NO hacia cumplir las
+NetworkPolicy, asi que el deny-all nunca se noto. El cluster de la
+Practica 9 usa un kindnet que SI las aplica, y aparecieron dos caminos
+legitimos bloqueados:
+  - argo-rollouts: el AnalysisTemplate (provider web) consulta
+    api-gateway-canary:8080/health desde el namespace de Argo Rollouts.
+  - sa-p9-sondeo: el sondeo de la prueba de perdida de nodo.
+Vacio por defecto -> no se renderiza nada (el cluster de la P8 no cambia).
+*/}}
+{{- with .Values.networkPolicy.apiGatewayExtraIngressNamespaces }}
+{{- if $.Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-gateway-ingreso-extra
+  labels:
+    {{- include "sa-p5.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: api-gateway
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- range . }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+        {{- end }}
+      ports:
+        - port: {{ $.Values.service.port }}
+          protocol: TCP
+{{- end }}
+{{- end }}

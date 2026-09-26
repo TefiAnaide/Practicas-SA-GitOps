@@ -1,0 +1,27 @@
+# SealedSecret con las credenciales S3 de Velero (infra/velero/). Va en una
+# ola ANTERIOR a Velero: si el controlador de Sealed Secrets no pudiera
+# descifrarlo (llave no restaurada), esta app no llega a Healthy y la
+# reconstruccion se detiene aqui, visible, en lugar de levantar un Velero
+# sin acceso a los respaldos.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: velero-credenciales
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/TefiAnaide/Practicas-SA-GitOps.git
+    targetRevision: main
+    path: infra/velero
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: velero
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

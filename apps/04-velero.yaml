@@ -1,0 +1,94 @@
+# Respaldos programados con Velero (Practica 9, seccion 3.2).
+#
+#   Schedule   velero-sa-p8-cada-hora   cron "0 * * * *" (cada hora en punto)
+#   Retencion  ttl 168h (7 dias -> hasta 168 respaldos vivos)
+#   Alcance    namespace sa-p8 completo, manifiestos + VOLUMENES (File System
+#              Backup con kopia, via node-agent en cada nodo)
+#   Destino    MinIO FUERA del cluster: bucket sa-p9-velero en
+#              http://sa-p9-minio:9000 (contenedor Docker en la red "kind")
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: velero
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://vmware-tanzu.github.io/helm-charts
+    chart: velero
+    targetRevision: 12.2.0
+    helm:
+      valuesObject:
+        # Los CRDs van en crds/ del chart y ArgoCD los aplica; el Job de
+        # upgrade (hook de Helm) no hace falta.
+        upgradeCRDs: false
+        cleanUpCRDs: false
+
+        initContainers:
+          - name: velero-plugin-for-aws
+            image: velero/velero-plugin-for-aws:v1.14.3
+            imagePullPolicy: IfNotPresent
+            volumeMounts:
+              - mountPath: /target
+                name: plugins
+
+        credentials:
+          useSecret: true
+          existingSecret: velero-credentials   # SealedSecret de la ola -1
+
+        # kind no tiene snapshots CSI: los volumenes se copian archivo por
+        # archivo desde el node-agent (File System Backup).
+        snapshotsEnabled: false
+        deployNodeAgent: true
+
+        configuration:
+          uploaderType: kopia
+          defaultVolumesToFsBackup: true
+          backupStorageLocation:
+            - name: default
+              default: true
+              provider: aws
+              bucket: sa-p9-velero
+              config:
+                region: minio
+                s3ForcePathStyle: "true"
+                s3Url: http://sa-p9-minio:9000
+                # URL para el CLI "velero" del host (descargas firmadas de
+                # logs/detalles): sa-p9-minio solo resuelve dentro de la red kind.
+                publicUrl: http://localhost:9100
+          volumeSnapshotLocation: []
+
+        schedules:
+          sa-p8-cada-hora:
+            schedule: "0 * * * *"
+            # Un cluster recien reconstruido NO debe respaldar de inmediato:
+            # guardaria una base vacia como "el respaldo mas reciente".
+            skipImmediately: true
+            useOwnerReferencesInBackup: false
+            template:
+              ttl: 168h0m0s
+              storageLocation: default
+              includedNamespaces:
+                - sa-p8
+              defaultVolumesToFsBackup: true
+              snapshotVolumes: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: velero
+  # skipImmediately es de un solo uso: Velero lo vuelve false tras omitir la
+  # primera ejecucion. Sin esto ArgoCD lo veria OutOfSync para siempre.
+  ignoreDifferences:
+    - group: velero.io
+      kind: Schedule
+      jsonPointers:
+        - /spec/skipImmediately
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true

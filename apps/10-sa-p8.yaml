@@ -1,0 +1,31 @@
+# La plataforma de microservicios — la misma Application "sa-p8" de la
+# Practica 8 (argocd-application.yaml), ahora creada por la raiz en lugar
+# de aplicarse a mano. Agrega values-p9.yaml: resiliencia (replicas,
+# anti-afinidad) y almacenamiento respaldable por Velero.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sa-p8
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/TefiAnaide/Practicas-SA-GitOps.git
+    targetRevision: main
+    path: chart
+    helm:
+      valueFiles:
+        - values-dev.yaml
+        - values-images.yaml
+        - values-p9.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sa-p8
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false # el namespace lo crea Terraform, no ArgoCD

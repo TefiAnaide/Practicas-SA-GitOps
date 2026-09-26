@@ -1,0 +1,69 @@
+# Overrides de la Practica 9 (continuidad operativa). Solo los usa la
+# Application sa-p8 del cluster sa-p9 (apps/10-sa-p8.yaml); el cluster de
+# la Practica 8 (argocd-application.yaml) no los carga.
+
+# --- Resiliencia ante perdida de nodo --------------------------------------
+# api-gateway es el unico punto de entrada: 2 replicas, repartidas en nodos
+# distintos, y su PDB (minAvailable: 1, ya existente en el subchart) impide
+# que un drenaje las desaloje a ambas a la vez.
+#
+# Anti-afinidad PREFERIDA y no requerida: durante un canary, Argo Rollouts
+# crea pods adicionales; con "required" y solo 2 workers, el pod canary no
+# tendria nodo libre y el despliegue quedaria bloqueado. Igual al drenar:
+# con "preferred", la replica desalojada se reprograma en el nodo que queda.
+api-gateway:
+  replicaCount: 2
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: api-gateway
+
+# Ver templates/networkpolicy-p9.yaml: el CNI del cluster P9 SI aplica
+# NetworkPolicy; sin esto el analisis canary y el sondeo quedan bloqueados.
+networkPolicy:
+  apiGatewayExtraIngressNamespaces:
+    - argo-rollouts
+    - sa-p9-sondeo
+
+# Resto de servicios sin estado: 2 replicas cada uno. Con 1 replica, su PDB
+# (minAvailable: 1) bloquea para siempre la eviccion y "kubectl drain" no
+# termina nunca (comprobado en la primera prueba de perdida de nodo). Con 2,
+# el drenaje desaloja una y la otra sigue atendiendo. La reparticion entre
+# nodos la hace el spreading por defecto del scheduler (misma ReplicaSet).
+auth-service:
+  replicaCount: 2
+authz-service:
+  replicaCount: 2
+pedidos-service:
+  replicaCount: 2
+productos-service:
+  replicaCount: 2
+reportes-service:
+  replicaCount: 2
+
+# --- Servicio con estado ----------------------------------------------------
+postgresql:
+  # La Practica 8 heredaba "bitnami/postgresql:latest" (default del chart):
+  # en un cluster nuevo la politica disallow-latest-tag de Kyverno
+  # rechazaria el pod. Se fija por digest — exactamente la imagen que corria
+  # en la Practica 8, requisito para que el directorio de datos restaurado
+  # sea compatible (misma version mayor de Postgres).
+  image:
+    registry: docker.io
+    repository: bitnami/postgresql
+    digest: "sha256:b74b23f091dcc87041bcae557d840c36458af46b955279cb13aedec4c32d7f71"
+  primary:
+    persistence:
+      # PV tipo "local" (no hostPath): el File System Backup de Velero
+      # omite los volumenes hostPath. StorageClass creado por Terraform
+      # (P9/terraform/cluster.tf).
+      storageClass: local-respaldable
+
+rabbitmq:
+  persistence:
+    storageClass: local-respaldable

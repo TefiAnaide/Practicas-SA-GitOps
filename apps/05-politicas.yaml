@@ -1,0 +1,21 @@
+# Las 3 ClusterPolicy de la Practica 8 (carpeta policies/). Ola 0: despues
+# de que Kyverno (ola -2) registro sus CRDs, antes de la plataforma (ola 1).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: politicas-kyverno
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/TefiAnaide/Practicas-SA-GitOps.git
+    targetRevision: main
+    path: policies
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -1,0 +1,52 @@
+# Motor de politicas de admision de la Practica 8.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kyverno
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  project: default
+  source:
+    repoURL: https://kyverno.github.io/kyverno/
+    chart: kyverno
+    targetRevision: 3.9.1
+    helm:
+      valuesObject:
+        # Solo admision + background: las politicas son Enforce en admision.
+        # Reportes y limpieza no se usan y cuestan memoria en un cluster local.
+        # 2 replicas + PDB del admission controller. Hallazgo de la prueba de
+        # perdida de nodo (P9/doc/InformeDR.md): con 1 sola replica en el nodo
+        # drenado, su webhook (failurePolicy: Fail) rechazo durante minutos
+        # hasta las actualizaciones de estado de pods de TODO el cluster y
+        # el drenaje no pudo terminar. Anti-afinidad por nodo: default del chart.
+        admissionController:
+          replicas: 2
+          podDisruptionBudget:
+            enabled: true
+            minAvailable: 1
+        reportsController:
+          enabled: false
+        cleanupController:
+          enabled: false
+        # Los CRDs del subchart kyverno-api se renderizan con "labels: {}" y
+        # "annotations: {}" vacios; con Server-Side Apply ArgoCD nunca logra
+        # dejarlos Synced (ni con su anotacion de rastreo). Darles contenido
+        # real elimina el problema en origen.
+        kyverno-api:
+          labels:
+            app.kubernetes.io/part-of: kyverno
+          annotations:
+            argocd.argoproj.io/sync-options: ServerSideApply=true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kyverno
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # Los CRDs de Kyverno exceden el limite de la anotacion last-applied.
+      - ServerSideApply=true
