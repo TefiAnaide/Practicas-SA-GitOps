@@ -100,7 +100,7 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "api-gateway.fullname" . }}-config
-          {{- with (include "sa-p5.otelEnv" . | trim) }}
+          {{- with (include "api-gateway.otelEnv" . | trim) }}
           env:
             {{- . | nindent 12 }}
           {{- end }}
