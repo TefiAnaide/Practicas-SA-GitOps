@@ -110,7 +110,9 @@ spec:
       containers:
         - name: k6
           image: grafana/k6:2.3.0
-          args: ["run", "--quiet", "--no-summary", "/scripts/usuarios.js"]
+          # k6 2.x ya no tiene --no-summary: el resumen solo se imprimiria al
+          # terminar, y este escenario dura 720 h.
+          args: ["run", "--quiet", "/scripts/usuarios.js"]
           env:
             - name: BASE_URL
               value: http://api-gateway.sa-p8.svc.cluster.local:8080
