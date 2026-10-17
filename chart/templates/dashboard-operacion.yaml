@@ -1,0 +1,18 @@
+{{- /*
+Practica 10: tablero de operacion. El JSON vive en chart/dashboards/ (es el
+mismo archivo exportado que se entrega en P10/dashboards/). El sidecar de
+Grafana (kube-prometheus-stack, searchNamespace: ALL) carga todo ConfigMap
+con la etiqueta grafana_dashboard: "1".
+*/ -}}
+{{- if .Values.dashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tablero-operacion
+  labels:
+    {{- include "sa-p5.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  operacion.json: |-
+{{ .Files.Get "dashboards/operacion.json" | indent 4 }}
+{{- end }}

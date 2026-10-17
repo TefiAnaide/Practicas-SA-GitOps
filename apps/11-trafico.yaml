@@ -1,0 +1,26 @@
+# Generador de trafico de usuarios (Practica 10, infra/trafico/). Ola 2:
+# despues de la plataforma (ola 1), que es a quien le habla. Namespace
+# propio "trafico": la NetworkPolicy del api-gateway lo admite
+# (values-p10.yaml, apiGatewayExtraIngressNamespaces).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: trafico
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/TefiAnaide/Practicas-SA-GitOps.git
+    targetRevision: main
+    path: infra/trafico
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: trafico
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -195,3 +195,9 @@ rabbitmq:
 # desde un value: es un SealedSecret estatico, sellado una vez con kubeseal
 # contra la clave publica del controlador del cluster. Ningun valor de este
 # archivo lo alimenta.
+
+# --- Practica 10 (apagado por defecto; lo activa values-p10.yaml) ------------
+slo:
+  enabled: false
+dashboard:
+  enabled: false

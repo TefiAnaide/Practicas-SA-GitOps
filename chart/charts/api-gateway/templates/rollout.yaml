@@ -25,8 +25,18 @@ spec:
       # Service que Argo Rollouts mantiene apuntando exclusivamente a los
       # pods canary, para que el chequeo de salud nunca golpee por
       # accidente un pod de la revision estable (ver templates/service.yaml).
+      #
+      # Practica 10 (analysis.provider=prometheus): SIN stableService/
+      # canaryService. Con esos dos campos y sin TrafficRouting, Argo
+      # Rollouts fija el selector del Service principal a los pods ESTABLES,
+      # y el canary no recibe ni una peticion real: el analisis por metricas
+      # no tendria nada que medir. Sin ellos es "basic canary": el Service
+      # principal balancea entre todos los pods y el trafico de usuarios se
+      # reparte segun la proporcion de pods de cada version.
+      {{- if ne .Values.analysis.provider "prometheus" }}
       stableService: {{ include "api-gateway.fullname" . }}
       canaryService: {{ include "api-gateway.fullname" . }}-canary
+      {{- end }}
       # El paso "analysis" queda al final a proposito: Argo Rollouts
       # promueve automaticamente al 100% en cuanto el ultimo paso declarado
       # termina exitosamente, asi que no hace falta un setWeight:100 explicito
@@ -41,10 +51,18 @@ spec:
             duration: 15s
         - setWeight: 50
         - pause:
-            duration: 10s
+            # prometheus: la ventana de rate() necesita trafico acumulado
+            # del canary antes de la primera medicion.
+            duration: {{ if eq .Values.analysis.provider "prometheus" }}{{ .Values.analysis.prometheus.warmup }}{{ else }}10s{{ end }}
         - analysis:
             templates:
               - templateName: {{ include "api-gateway.fullname" . }}-canary-analysis
+            {{- if eq .Values.analysis.provider "prometheus" }}
+            args:
+              - name: canary-hash
+                valueFrom:
+                  podTemplateHashValue: Latest
+            {{- end }}
   template:
     metadata:
       annotations:
@@ -82,6 +100,10 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "api-gateway.fullname" . }}-config
+          {{- with (include "sa-p5.otelEnv" . | trim) }}
+          env:
+            {{- . | nindent 12 }}
+          {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

@@ -1,13 +1,28 @@
-# Puerta de calidad de la promocion canary: en el paso intermedio (peso
-# 50%) el Rollout consulta este AnalysisTemplate 3 veces cada 10s contra
-# /health, pero via el Service "-canary" (templates/service.yaml), que
-# Argo Rollouts mantiene apuntando SOLO a los pods de la revision nueva —
-# pegarle al Service compartido daba falsos positivos (mezcla pods
-# viejos/nuevos). failureLimit: 0 es a proposito: con count=3 y
-# failureLimit=1 el analisis SIGUE pasando aunque 1 de las 3 mediciones
-# falle (failureLimit es cuantos fallos TOLERA, no cuantos hacen fallar) —
-# confirmado con una version rota real en un clúster de prueba: el
-# resultado fue "Successful" con 1 medicion fallida hasta bajar esto a 0.
+{{- /*
+Puerta de calidad de la promocion canary. Dos proveedores, segun
+analysis.provider:
+
+  web         (Practica 8) consulta /health del canary 3 veces cada 10s via
+              el Service "-canary". Es una prueba sintetica: no mide lo que
+              viven los usuarios.
+
+  prometheus  (Practica 10, values-p10.yaml) decide con el trafico REAL que
+              recibe la version candidata, medido por OpenTelemetry:
+                - tasa de error (respuestas 5xx / total)
+                - percentil 95 de latencia
+              filtrando por rollouts_pod_template_hash = hash del canary
+              (etiqueta que el OTel Collector copia del pod a la metrica),
+              asi la version estable no "diluye" los errores de la nueva.
+
+failureLimit (los dos): cuantas mediciones fallidas se TOLERAN, no cuantas
+hacen fallar. En la P8 se comprobo con una version rota que failureLimit=1
+con count=3 dejaba pasar una medicion mala; para prometheus se tolera 1 de
+4 porque las ventanas de 1 min con poco trafico pueden tener un pico
+aislado, y una falla real se repite en todas las mediciones.
+
+Sin datos (el canary no recibio trafico) la condicion es falsa a proposito:
+no se promueve lo que no se pudo medir.
+*/ -}}
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
 metadata:
@@ -15,6 +30,36 @@ metadata:
   labels:
     {{- include "api-gateway.labels" . | nindent 4 }}
 spec:
+  {{- if eq .Values.analysis.provider "prometheus" }}
+  {{- $p := .Values.analysis.prometheus }}
+  {{- $selector := printf "service_name=\"%s\",rollouts_pod_template_hash=\"{{args.canary-hash}}\"" (include "api-gateway.fullname" .) }}
+  args:
+    - name: canary-hash
+  metrics:
+    - name: tasa-de-error
+      interval: {{ $p.interval }}
+      count: {{ $p.count }}
+      failureLimit: {{ $p.failureLimit }}
+      successCondition: "len(result) > 0 && !isNaN(result[0]) && result[0] <= {{ $p.maxErrorRate }}"
+      provider:
+        prometheus:
+          address: {{ $p.address | quote }}
+          query: |
+            sum(rate(http_server_request_duration_seconds_count{ {{- $selector -}} ,http_response_status_code=~"5.."}[{{ $p.window }}]))
+            /
+            sum(rate(http_server_request_duration_seconds_count{ {{- $selector -}} }[{{ $p.window }}]))
+    - name: latencia-p95
+      interval: {{ $p.interval }}
+      count: {{ $p.count }}
+      failureLimit: {{ $p.failureLimit }}
+      successCondition: "len(result) > 0 && !isNaN(result[0]) && result[0] <= {{ $p.maxP95Seconds }}"
+      provider:
+        prometheus:
+          address: {{ $p.address | quote }}
+          query: |
+            histogram_quantile(0.95,
+              sum by (le) (rate(http_server_request_duration_seconds_bucket{ {{- $selector -}} }[{{ $p.window }}])))
+  {{- else }}
   metrics:
     - name: health-check
       interval: 10s
@@ -26,3 +71,4 @@ spec:
           url: "http://{{ include "api-gateway.fullname" . }}-canary.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/health"
           jsonPath: "{$.status}"
           timeoutSeconds: 5
+  {{- end }}

@@ -133,3 +133,12 @@ volumeMounts: []
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# --- Practica 10 --------------------------------------------------------------
+# OpenTelemetry (helper "sa-p5.otelEnv" del chart padre). Apagado por defecto.
+otel:
+  enabled: false
+  endpoint: ""
+  metricExportIntervalMs: 10000
+
+extraEnv: []

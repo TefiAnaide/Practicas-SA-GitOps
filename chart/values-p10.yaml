@@ -1,0 +1,69 @@
+# Overrides de la Practica 10 (observabilidad). Se cargan DESPUES de
+# values-p9.yaml en apps/10-sa-p8.yaml. Solo los usa el cluster sa-p9.
+
+# --- Red ----------------------------------------------------------------------
+networkPolicy:
+  # Salida OTLP hacia el Collector (templates/networkpolicy-p10.yaml).
+  telemetriaNamespace: observabilidad
+  # Lista completa (reemplaza la de values-p9.yaml): se agrega "trafico", el
+  # generador de usuarios (infra/trafico/ del repo GitOps).
+  apiGatewayExtraIngressNamespaces:
+    - argo-rollouts
+    - sa-p9-sondeo
+    - trafico
+
+# --- Instrumentacion ------------------------------------------------------------
+# Los tres servicios instrumentados con OpenTelemetry: el camino de una compra
+# api-gateway -> pedidos-service -> productos-service (y authz-service).
+# Memoria: el SDK de OpenTelemetry tiene un costo real. En el api-gateway
+# (Node + auto-instrumentaciones) los 96Mi de la P8 no alcanzan.
+otelComun: &otel
+  enabled: true
+  endpoint: http://otel-collector.observabilidad.svc:4318
+  metricExportIntervalMs: 10000
+
+api-gateway:
+  otel: *otel
+  resources:
+    requests: {cpu: 50m, memory: 96Mi}
+    limits: {cpu: 200m, memory: 256Mi}
+  # Canary gobernado por metricas reales (templates/analysistemplate.yaml).
+  analysis:
+    provider: prometheus
+    prometheus:
+      address: http://kps-prometheus.observabilidad.svc:9090
+  # Falla inducida: vacio = version sana. Para la demostracion se agrega
+  #   - name: FALLA_TASA_ERROR
+  #     value: "0.3"
+  # en un commit; Argo Rollouts lo despliega como canary y el analisis
+  # debe revertirlo (P10/doc/InformeOperacion.md).
+  extraEnv: []
+
+pedidos-service:
+  otel: *otel
+  resources:
+    requests: {cpu: 40m, memory: 64Mi}
+    limits: {cpu: 150m, memory: 192Mi}
+
+productos-service:
+  otel: *otel
+  resources:
+    requests: {cpu: 40m, memory: 64Mi}
+    limits: {cpu: 150m, memory: 192Mi}
+
+# --- SLO y tablero ----------------------------------------------------------------
+slo:
+  enabled: true
+  runbookBaseUrl: https://github.com/TefiAnaide/Pr-cticas-SA-B-202300547/blob/main/P10/doc/runbooks
+  disponibilidad:
+    servicio: api-gateway
+    objetivo: 0.99
+  latenciaCompra:
+    servicio: pedidos-service
+    ruta: /pedidos
+    metodo: POST
+    umbralSegundos: "1"
+    objetivo: 0.95
+
+dashboard:
+  enabled: true

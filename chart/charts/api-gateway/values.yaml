@@ -126,3 +126,28 @@ volumeMounts: []
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# --- Practica 10 --------------------------------------------------------------
+# Puerta de calidad del canary (templates/analysistemplate.yaml).
+#   web         Practica 8: /health del canary (prueba sintetica)
+#   prometheus  Practica 10: tasa de error y p95 del trafico real del canary
+analysis:
+  provider: web
+  prometheus:
+    address: ""
+    window: 1m            # ventana de rate()
+    warmup: 60s           # pausa al 50% antes de medir (llenar la ventana)
+    interval: 30s
+    count: 4
+    failureLimit: 1
+    maxErrorRate: 0.05    # 5% de 5xx
+    maxP95Seconds: 0.5
+
+# OpenTelemetry (helper "sa-p5.otelEnv" del chart padre). Apagado por defecto.
+otel:
+  enabled: false
+  endpoint: ""
+  metricExportIntervalMs: 10000
+
+# Variables extra en el pod (p. ej. la falla inducida FALLA_TASA_ERROR).
+extraEnv: []

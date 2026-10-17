@@ -1,0 +1,34 @@
+{{/*
+Practica 10: salida de telemetria. El deny-all de networkpolicy-baseline.yaml
+tambien bloquea el egreso, asi que sin esto el SDK de OpenTelemetry de cada
+servicio no podria enviar trazas ni metricas al Collector (OTLP en el
+namespace de observabilidad). Solo los puertos OTLP: nada mas sale.
+
+Los registros NO necesitan esta regla: el Collector los lee de los
+archivos del nodo (/var/log/pods), no por red.
+Vacio por defecto -> no se renderiza (el cluster de la P8 no cambia).
+*/}}
+{{- with .Values.networkPolicy.telemetriaNamespace }}
+{{- if $.Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: salida-telemetria
+  labels:
+    {{- include "sa-p5.labels" $ | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+{{- end }}
+{{- end }}

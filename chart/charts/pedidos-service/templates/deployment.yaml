@@ -66,6 +66,9 @@ spec:
                   # (Bitnami), nombre fijo por su fullnameOverride: "postgres".
                   name: postgres
                   key: postgres-password
+            {{- with (include "sa-p5.otelEnv" . | trim) }}
+            {{- . | nindent 12 }}
+            {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

@@ -1,0 +1,137 @@
+# =============================================================================
+# Generador de trafico de usuarios (Practica 10).
+#
+# Sin trafico no hay metricas: ni el canary tendria nada que analizar ni los
+# SLO tendrian eventos que contar. Este Deployment simula, de forma continua
+# y a ritmo bajo, lo que hacen los usuarios de la tienda a traves del
+# api-gateway (el mismo Service que usan los usuarios: el trafico se reparte
+# entre la version estable y la canary segun la proporcion de pods).
+#
+#   clientes   miran el catalogo, revisan sus pedidos y compran 1-3 unidades
+#   imposibles ~5% de las compras piden 500 unidades -> 409 "sin stock"
+#              (alimenta pedidos_rechazados_total, metrica de negocio)
+#   bodega     si un producto baja de 5 unidades, repone 50 (permiso
+#              productos:ajustar-stock, que el rol Cliente tiene)
+#
+# No es una prueba: no tiene umbrales ni "pasa/falla". Es la carga de fondo
+# sobre la que se miden los SLO y se decide el canary.
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: generador-trafico
+data:
+  usuarios.js: |
+    import http from "k6/http";
+    import { check, sleep } from "k6";
+
+    const BASE = __ENV.BASE_URL;
+    const JSON_H = { headers: { "Content-Type": "application/json" } };
+
+    export const options = {
+      scenarios: {
+        clientes: {
+          executor: "constant-arrival-rate",
+          rate: Number(__ENV.ITERACIONES_POR_SEGUNDO || 2),
+          timeUnit: "1s",
+          duration: "720h",
+          preAllocatedVUs: 4,
+          maxVUs: 8,
+        },
+      },
+      // Sin resumen al final ni umbrales: corre indefinidamente.
+      summaryTrendStats: [],
+    };
+
+    // Cada VU registra su propio Cliente la primera vez; la cookie de sesion
+    // queda en el cookie jar del VU para las iteraciones siguientes.
+    function iniciarSesion() {
+      const correo = `carga-${__VU}-${Date.now()}@trafico.local`;
+      const cuenta = { nombre: `Carga ${__VU}`, correo_electronico: correo, contrasena: "trafico-sintetico" };
+      http.post(`${BASE}/api/auth/registro`, JSON.stringify(cuenta), JSON_H);
+      const r = http.post(`${BASE}/api/auth/login`,
+        JSON.stringify({ correo_electronico: correo, contrasena: cuenta.contrasena }), JSON_H);
+      return r.status === 200;
+    }
+
+    let conSesion = false;
+
+    export default function () {
+      if (!conSesion) {
+        conSesion = iniciarSesion();
+        if (!conSesion) { sleep(2); return; }
+      }
+
+      const catalogo = http.get(`${BASE}/api/productos`, { tags: { op: "catalogo" } });
+      if (catalogo.status === 401) { conSesion = false; return; }
+      check(catalogo, { "catalogo 200": (r) => r.status === 200 });
+
+      let productos = [];
+      try { productos = catalogo.json() || []; } catch (e) { productos = []; }
+
+      if (Math.random() < 0.3) {
+        http.get(`${BASE}/api/pedidos`, { tags: { op: "mis-pedidos" } });
+      }
+
+      if (productos.length > 0 && Math.random() < 0.4) {
+        const p = productos[Math.floor(Math.random() * productos.length)];
+
+        if (p.stock < 5) {
+          http.patch(`${BASE}/api/productos/${p.id}/stock`, JSON.stringify({ delta: 50 }),
+            Object.assign({ tags: { op: "bodega" } }, JSON_H));
+        }
+
+        const cantidad = Math.random() < 0.05 ? 500 : 1 + Math.floor(Math.random() * 3);
+        http.post(`${BASE}/api/pedidos`,
+          JSON.stringify({ items: [{ producto_id: p.id, cantidad: cantidad }] }),
+          Object.assign({ tags: { op: "compra" } }, JSON_H));
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: generador-trafico
+  labels:
+    app.kubernetes.io/name: generador-trafico
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: generador-trafico
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: generador-trafico
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 12345
+      containers:
+        - name: k6
+          image: grafana/k6:2.3.0
+          args: ["run", "--quiet", "--no-summary", "/scripts/usuarios.js"]
+          env:
+            - name: BASE_URL
+              value: http://api-gateway.sa-p8.svc.cluster.local:8080
+            - name: ITERACIONES_POR_SEGUNDO
+              value: "2"
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {cpu: 300m, memory: 192Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: scripts
+          configMap:
+            name: generador-trafico
+        - name: tmp
+          emptyDir: {}

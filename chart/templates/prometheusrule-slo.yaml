@@ -1,0 +1,143 @@
+{{- /*
+Practica 10: SLO, presupuesto de error y alertas por consumo.
+
+Dos SLO, expresados desde la experiencia del usuario (justificacion completa
+en P10/doc/SLO.md del repo de codigo):
+
+  disponibilidad   el 99% de las peticiones a la API (api-gateway) no
+                   termina en error del servidor (5xx).        ventana 7d
+  latencia-compra  el 95% de las compras (POST /pedidos) termina en menos
+                   de 1 s.                                     ventana 7d
+
+Reglas de registro: la proporcion de eventos MALOS en varias ventanas
+(5m, 30m, 1h, 6h y 7d), el SLI (1 - malos) y el presupuesto consumido
+(malos_7d / (1 - objetivo): 1 = presupuesto agotado).
+
+Alertas: SOLO por consumo del presupuesto (multi-ventana, multi-tasa, SRE
+Workbook cap. 5). Ninguna alerta por umbral instantaneo: un pico de 5xx de
+un minuto que no amenaza el objetivo no amerita despertar a nadie. Por la
+misma razon kube-prometheus-stack corre con defaultRules.create=false.
+
+  rapida (critical)  tasa de consumo > 14.4 en 1h Y en 5m. A ese ritmo el
+                     presupuesto de 7 dias se agota en ~12 h: hay que actuar ya.
+  lenta  (warning)   tasa de consumo > 6 en 6h Y en 30m. Se agota en ~28 h:
+                     se atiende en horario, no de madrugada.
+La ventana corta evita que la alerta siga sonando cuando el problema ya paso.
+*/ -}}
+{{- if .Values.slo.enabled }}
+{{- $s := .Values.slo }}
+{{- $gw := printf "service_name=\"%s\"" $s.disponibilidad.servicio }}
+{{- $compra := printf "service_name=\"%s\",http_route=\"%s\",http_request_method=\"%s\"" $s.latenciaCompra.servicio $s.latenciaCompra.ruta $s.latenciaCompra.metodo }}
+{{- $errDisp := subf 1 $s.disponibilidad.objetivo | printf "%.4g" }}
+{{- $errLat := subf 1 $s.latenciaCompra.objetivo | printf "%.4g" }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: slo-sa-p8
+  labels:
+    {{- include "sa-p5.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: slo-disponibilidad.registro
+      interval: 30s
+      rules:
+        {{- range $v := list "5m" "30m" "1h" "6h" "7d" }}
+        - record: slo:errores_disponibilidad:ratio_rate{{ $v }}
+          expr: |
+            (sum(rate(http_server_request_duration_seconds_count{ {{- $gw -}} ,http_response_status_code=~"5.."}[{{ $v }}])) or vector(0))
+            /
+            sum(rate(http_server_request_duration_seconds_count{ {{- $gw -}} }[{{ $v }}]))
+        {{- end }}
+        - record: sli:disponibilidad:ratio_rate5m
+          expr: 1 - slo:errores_disponibilidad:ratio_rate5m
+        - record: sli:disponibilidad:ratio_rate7d
+          expr: 1 - slo:errores_disponibilidad:ratio_rate7d
+        - record: slo:disponibilidad:presupuesto_consumido
+          expr: slo:errores_disponibilidad:ratio_rate7d / {{ $errDisp }}
+        - record: slo:disponibilidad:objetivo
+          expr: vector({{ $s.disponibilidad.objetivo }})
+
+    - name: slo-latencia-compra.registro
+      interval: 30s
+      rules:
+        {{- range $v := list "5m" "30m" "1h" "6h" "7d" }}
+        - record: slo:compras_lentas:ratio_rate{{ $v }}
+          expr: |
+            1 - (
+              sum(rate(http_server_request_duration_seconds_bucket{ {{- $compra -}} ,le="{{ $s.latenciaCompra.umbralSegundos }}"}[{{ $v }}]))
+              /
+              sum(rate(http_server_request_duration_seconds_count{ {{- $compra -}} }[{{ $v }}]))
+            )
+        {{- end }}
+        - record: sli:latencia_compra:ratio_rate5m
+          expr: 1 - slo:compras_lentas:ratio_rate5m
+        - record: sli:latencia_compra:ratio_rate7d
+          expr: 1 - slo:compras_lentas:ratio_rate7d
+        - record: slo:latencia_compra:presupuesto_consumido
+          expr: slo:compras_lentas:ratio_rate7d / {{ $errLat }}
+        - record: slo:latencia_compra:objetivo
+          expr: vector({{ $s.latenciaCompra.objetivo }})
+
+    - name: slo.alertas
+      rules:
+        - alert: SLODisponibilidadConsumoRapido
+          expr: |
+            slo:errores_disponibilidad:ratio_rate1h > (14.4 * {{ $errDisp }})
+            and
+            slo:errores_disponibilidad:ratio_rate5m > (14.4 * {{ $errDisp }})
+          for: 2m
+          labels:
+            severity: critical
+            slo: disponibilidad
+          annotations:
+            summary: "La API esta fallando: el presupuesto de error de 7 dias se agota en ~12 h"
+            description: >-
+              {{ "{{" }} $value | humanizePercentage {{ "}}" }} de las peticiones de la ultima hora terminan en 5xx
+              (el SLO tolera {{ mulf $errDisp 100 | printf "%.4g" }}%). Los usuarios no pueden comprar ni ver el catalogo.
+              Amerita intervencion inmediata: si no se corrige, el objetivo semanal se incumple hoy.
+            runbook_url: {{ printf "%s/SLODisponibilidad.md" $s.runbookBaseUrl | quote }}
+        - alert: SLODisponibilidadConsumoLento
+          expr: |
+            slo:errores_disponibilidad:ratio_rate6h > (6 * {{ $errDisp }})
+            and
+            slo:errores_disponibilidad:ratio_rate30m > (6 * {{ $errDisp }})
+          for: 15m
+          labels:
+            severity: warning
+            slo: disponibilidad
+          annotations:
+            summary: "Errores sostenidos en la API: el presupuesto de 7 dias se agota en ~28 h"
+            description: >-
+              {{ "{{" }} $value | humanizePercentage {{ "}}" }} de errores 5xx en las ultimas 6 h. No es urgente de madrugada,
+              pero hay que revisarlo en la jornada: a este ritmo el objetivo semanal se incumple manana.
+            runbook_url: {{ printf "%s/SLODisponibilidad.md" $s.runbookBaseUrl | quote }}
+        - alert: SLOLatenciaCompraConsumoRapido
+          expr: |
+            slo:compras_lentas:ratio_rate1h > (14.4 * {{ $errLat }})
+            and
+            slo:compras_lentas:ratio_rate5m > (14.4 * {{ $errLat }})
+          for: 2m
+          labels:
+            severity: critical
+            slo: latencia-compra
+          annotations:
+            summary: "Las compras estan tardando mas de {{ $s.latenciaCompra.umbralSegundos }} s: presupuesto agotandose en ~12 h"
+            description: >-
+              {{ "{{" }} $value | humanizePercentage {{ "}}" }} de las compras de la ultima hora tardo mas de {{ $s.latenciaCompra.umbralSegundos }} s
+              (el SLO tolera {{ mulf $errLat 100 | printf "%.4g" }}%). Los clientes perciben la tienda lenta y abandonan la compra.
+            runbook_url: {{ printf "%s/SLOLatenciaCompra.md" $s.runbookBaseUrl | quote }}
+        - alert: SLOLatenciaCompraConsumoLento
+          expr: |
+            slo:compras_lentas:ratio_rate6h > (6 * {{ $errLat }})
+            and
+            slo:compras_lentas:ratio_rate30m > (6 * {{ $errLat }})
+          for: 15m
+          labels:
+            severity: warning
+            slo: latencia-compra
+          annotations:
+            summary: "Compras lentas sostenidas: el presupuesto de 7 dias se agota en ~28 h"
+            description: >-
+              {{ "{{" }} $value | humanizePercentage {{ "}}" }} de compras lentas en 6 h. Revisar en la jornada.
+            runbook_url: {{ printf "%s/SLOLatenciaCompra.md" $s.runbookBaseUrl | quote }}
+{{- end }}
