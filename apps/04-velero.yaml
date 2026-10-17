@@ -6,6 +6,9 @@
 #              Backup con kopia, via node-agent en cada nodo)
 #   Destino    MinIO FUERA del cluster: bucket sa-p9-velero en
 #              http://sa-p9-minio:9000 (contenedor Docker en la red "kind")
+#
+#   Schedule   velero-sealed-secrets-llave   cron "30 */6 * * *", ttl 720h
+#   Alcance    solo los Secrets de la llave de Sealed Secrets (kube-system)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -73,6 +76,27 @@ spec:
               includedNamespaces:
                 - sa-p8
               defaultVolumesToFsBackup: true
+              snapshotVolumes: false
+
+          # Segunda copia de la llave de Sealed Secrets (la primera es
+          # P9/scripts/respaldar-llave.sh -> s3://sa-p9-llaves). Solo los
+          # Secrets de kube-system con la etiqueta de llave; sin volumenes.
+          # SIN skipImmediately: en un cluster recien reconstruido la llave
+          # ya es la restaurada, asi que respaldarla de inmediato es correcto.
+          sealed-secrets-llave:
+            schedule: "30 */6 * * *"
+            useOwnerReferencesInBackup: false
+            template:
+              ttl: 720h0m0s
+              storageLocation: default
+              includedNamespaces:
+                - kube-system
+              includedResources:
+                - secrets
+              labelSelector:
+                matchLabels:
+                  sealedsecrets.bitnami.com/sealed-secrets-key: active
+              defaultVolumesToFsBackup: false
               snapshotVolumes: false
   destination:
     server: https://kubernetes.default.svc
