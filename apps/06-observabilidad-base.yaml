@@ -1,0 +1,35 @@
+# =============================================================================
+# Practica 10 — Observabilidad. Stack completo en el namespace
+# "observabilidad", desplegado por el mismo app-of-apps (sa-p9-root):
+#
+#   ola -1  observabilidad-base     namespace + SealedSecret de Grafana (este archivo)
+#   ola  0  kube-prometheus-stack   Prometheus, Alertmanager, Grafana, operador, CRDs
+#   ola  0  loki                    almacen de registros (single binary)
+#   ola  0  tempo                   backend de trazas (single binary)
+#   ola  0  otel-collector          DaemonSet: OTLP (trazas+metricas) y filelog (registros)
+#   ola  1  sa-p8                   la plataforma, que ya envia telemetria
+#
+# Flujo de la senal: P10/doc/DiagramaTelemetria.md (repo de codigo).
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observabilidad-base
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/TefiAnaide/Practicas-SA-GitOps.git
+    targetRevision: main
+    path: infra/observabilidad
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observabilidad
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

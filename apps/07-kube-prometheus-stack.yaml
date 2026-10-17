@@ -1,0 +1,135 @@
+# Prometheus + Alertmanager + Grafana + Prometheus Operator (Practica 10).
+#
+# Ajustado para un cluster kind en una laptop: retencion corta, recursos
+# acotados y SIN las reglas por defecto del chart. Esas ~150 alertas
+# (etcd, scheduler, nodo...) en kind solo producen ruido que nadie atiende;
+# las unicas alertas de esta practica son las de consumo del presupuesto de
+# error, definidas junto a la plataforma (chart/templates/prometheusrule-slo.yaml).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 92.10.1
+    helm:
+      valuesObject:
+        fullnameOverride: kps
+        cleanPrometheusOperatorObjectNames: true
+
+        defaultRules:
+          create: false
+        # Componentes del control-plane que kind no expone: sin esto, sus
+        # targets quedan "down" para siempre.
+        kubeEtcd: {enabled: false}
+        kubeControllerManager: {enabled: false}
+        kubeScheduler: {enabled: false}
+        kubeProxy: {enabled: false}
+        # Saturacion: cAdvisor (kubelet) ya da CPU/memoria por contenedor;
+        # node-exporter seria un pod mas por nodo sin preguntas que responda.
+        nodeExporter: {enabled: false}
+
+        prometheusOperator:
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {memory: 192Mi}
+
+        kube-state-metrics:
+          resources:
+            requests: {cpu: 10m, memory: 48Mi}
+            limits: {memory: 128Mi}
+
+        prometheus:
+          prometheusSpec:
+            retention: 3d
+            retentionSize: 2GB
+            scrapeInterval: 15s
+            evaluationInterval: 15s
+            # Sin esto Prometheus solo ve los ServiceMonitor/PodMonitor/
+            # PrometheusRule con la etiqueta "release: kps".
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            probeSelectorNilUsesHelmValues: false
+            resources:
+              requests: {cpu: 100m, memory: 384Mi}
+              limits: {memory: 1Gi}
+
+        alertmanager:
+          alertmanagerSpec:
+            resources:
+              requests: {cpu: 10m, memory: 32Mi}
+              limits: {memory: 96Mi}
+
+        grafana:
+          testFramework:
+            enabled: false
+          admin:
+            existingSecret: grafana-admin       # SealedSecret de observabilidad-base
+            userKey: admin-user
+            passwordKey: admin-password
+          resources:
+            requests: {cpu: 20m, memory: 128Mi}
+            limits: {memory: 320Mi}
+          sidecar:
+            dashboards:
+              enabled: true
+              label: grafana_dashboard
+              searchNamespace: ALL              # el tablero vive junto a la plataforma (sa-p8)
+            datasources:
+              defaultDatasourceEnabled: true
+              uid: prometheus
+          # Correlacion de los tres pilares:
+          #   traza -> registros : tracesToLogsV2 (Tempo -> Loki, por trace_id)
+          #   registro -> traza  : derivedFields (Loki -> Tempo, extrae trace_id del JSON)
+          #   traza -> metricas  : tracesToMetrics (Tempo -> Prometheus, por servicio)
+          additionalDataSources:
+            - name: Loki
+              type: loki
+              uid: loki
+              url: http://loki.observabilidad.svc:3100
+              access: proxy
+              jsonData:
+                derivedFields:
+                  - name: trace_id
+                    datasourceUid: tempo
+                    matcherRegex: '"trace_id":"(\w+)"'
+                    url: "$${__value.raw}"
+                    urlDisplayLabel: Ver traza
+            - name: Tempo
+              type: tempo
+              uid: tempo
+              url: http://tempo.observabilidad.svc:3200
+              access: proxy
+              jsonData:
+                tracesToLogsV2:
+                  datasourceUid: loki
+                  spanStartTimeShift: "-5m"
+                  spanEndTimeShift: "5m"
+                  filterByTraceID: true
+                  customQuery: true
+                  query: '{k8s_namespace_name="sa-p8"} | json | trace_id="$${__trace.traceId}"'
+                tracesToMetrics:
+                  datasourceUid: prometheus
+                serviceMap:
+                  datasourceUid: prometheus
+                nodeGraph:
+                  enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observabilidad
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # Los CRDs del operador superan el limite de 256 KB de la anotacion
+      # last-applied: sin ServerSideApply el sync falla.
+      - ServerSideApply=true
